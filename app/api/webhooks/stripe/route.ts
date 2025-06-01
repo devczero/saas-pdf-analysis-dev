@@ -1,9 +1,8 @@
-
 import { NextResponse } from 'next/server'
 import { headers } from 'next/headers'
 import Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
-import { prisma }  from '@/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 export async function POST(req: Request) {
   const body = await req.text()
@@ -32,6 +31,9 @@ export async function POST(req: Request) {
       case 'invoice.payment_succeeded':
         await handlePaymentSucceeded(event.data.object as Stripe.Invoice)
         break
+
+      default:
+        console.warn(`Unhandled event type: ${event.type}`)
     }
 
     return NextResponse.json({ received: true }, { status: 200 })
@@ -67,14 +69,24 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+  // get billing period from the first subscription item
+  // users subscribe to one plan at a time (e.g. "Pro Plan" or "Monthly Plan")
+  // that means the subscription will contain only one item, so it's safe and standard to grab the first item like that
+  const firstItem = subscription.items.data[0]
+  
   await prisma.subscription.update({
     where: { stripeSubscriptionId: subscription.id },
     data: {
       status: subscription.status,
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      interval: subscription.items.data[0].plan.interval,
-      planId: subscription.items.data[0].plan.id,
+      // In Stripe v18, period dates are on the subscription item level
+      currentPeriodStart: firstItem?.current_period_start 
+        ? new Date(firstItem.current_period_start * 1000) 
+        : null,
+      currentPeriodEnd: firstItem?.current_period_end 
+        ? new Date(firstItem.current_period_end * 1000) 
+        : null,
+      interval: firstItem?.plan?.interval || firstItem?.price?.recurring?.interval,
+      planId: firstItem?.plan?.id || firstItem?.price?.id,
     },
   })
 }
@@ -86,25 +98,53 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 }
 
 async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
-  const subscription = await stripe.subscriptions.retrieve(
-    invoice.subscription as string
-  )
+  // In Stripe v18, we need to check if the invoice has a subscription
+  // The subscription property might not exist directly on all invoice types
+  let subscriptionId: string | null = null
+  
+  if ('subscription' in invoice && invoice.subscription) {
+    subscriptionId = typeof invoice.subscription === 'string' 
+      ? invoice.subscription 
+      : (invoice.subscription as Stripe.Subscription)?.id || null
+  }
+
+  if (!subscriptionId) {
+    console.warn('No subscription ID found in invoice')
+    return
+  }
+
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+  const firstItem = subscription.items.data[0]
+  
   await prisma.subscription.update({
     where: { stripeSubscriptionId: subscription.id },
     data: {
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      // In Stripe v18, period dates are on the subscription item level
+      currentPeriodStart: firstItem?.current_period_start 
+        ? new Date(firstItem.current_period_start * 1000) 
+        : null,
+      currentPeriodEnd: firstItem?.current_period_end 
+        ? new Date(firstItem.current_period_end * 1000) 
+        : null,
     },
   })
 }
 
 function mapSubscriptionData(subscription: Stripe.Subscription) {
+  // Get billing period from the first subscription item
+  const firstItem = subscription.items.data[0]
+  
   return {
     stripeSubscriptionId: subscription.id,
     status: subscription.status,
-    currentPeriodStart: new Date(subscription.current_period_start * 1000),
-    currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-    interval: subscription.items.data[0].plan.interval,
-    planId: subscription.items.data[0].plan.id,
+    // In Stripe v18, period dates are on the subscription item level
+    currentPeriodStart: firstItem?.current_period_start 
+      ? new Date(firstItem.current_period_start * 1000) 
+      : null,
+    currentPeriodEnd: firstItem?.current_period_end 
+      ? new Date(firstItem.current_period_end * 1000) 
+      : null,
+    interval: firstItem?.plan?.interval || firstItem?.price?.recurring?.interval,
+    planId: firstItem?.plan?.id || firstItem?.price?.id,
   }
 }
