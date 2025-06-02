@@ -1,20 +1,15 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useUser } from '@clerk/nextjs'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { 
   CheckCircle, 
   FileText, 
-  AlertCircle, 
-  Loader, 
-  Calendar, 
-  Info 
+  AlertCircle
 } from 'lucide-react'
 import { extractTextFromPDF } from '@/lib/pdfUtils'
 
 export default function DashboardContent() {
-    const { user, isLoaded } = useUser()
 
     const router = useRouter()
     const searchParams = useSearchParams()
