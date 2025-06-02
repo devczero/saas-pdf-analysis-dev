@@ -21,7 +21,7 @@
     "pdfjs-dist": "^5.0.375",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "stripe": "^17.7.0",
+    "stripe": "^18.2.0",
     "svix": "^1.62.0",
     "tailwind-merge": "^3.0.2",
     "tailwindcss-animate": "^1.0.7"
